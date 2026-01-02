@@ -1,112 +1,130 @@
+// ================================
+// FINAL SERVER RNG + PERIOD LOGIC
+// ================================
+
 const express = require("express");
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-app.use(express.static("public"));
-
-/* ===== IST TIME ===== */
-function IST() {
-  return new Date(
-    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
-  );
-}
-
-/* ===== RESET 5:30 AM ===== */
-function getBase(now) {
-  const b = new Date(now);
-  b.setHours(5, 30, 0, 0);
-  if (now < b) b.setDate(b.getDate() - 1);
-  return b;
-}
-
-/* ===== MINUTE INDEX ===== */
-function minuteIndex() {
-  const now = IST();
-  const base = getBase(now);
-  return Math.floor((now - base) / 60000) + 1; // UPCOMING
-}
-
-/* ===== PERIOD ===== */
-function periodFromIndex(idx) {
-  const base = getBase(IST());
-  const ymd = base.toISOString().slice(0, 10).replace(/-/g, "");
-  return `${ymd}10001${String(idx).padStart(4, "0")}`;
-}
-
-/* ===== COLOR / SIZE ===== */
-const sizeOf = n => (n >= 5 ? "Big" : "Small");
-const colorOf = n => {
-  if (n === 0 || n === 5) return "Violet";
-  if ([1, 3, 7, 9].includes(n)) return "Green";
-  return "Red";
-};
-
-/* ===== SERVER STATE ===== */
 let history = [];
-let finalized = new Set();
-let frequencyPool = {}; // per minute
+let currentPreview = null;
+let currentFinal = null;
+let rngBucket = [];
+let lastLockedPeriod = null;
 
-/* ===== RNG HIT (REAL FEEL) ===== */
-function hitRNG() {
-  const n = Math.floor(Math.random() * 10);
-  frequencyPool[n] = (frequencyPool[n] || 0) + 1;
-  return n;
+// ---------- TIME HELPERS ----------
+function getIST() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
 }
 
-/* ===== ENGINE ===== */
+function getPeriodInfo() {
+  const now = getIST();
+
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+
+  const minute = now.getHours() * 60 + now.getMinutes();
+  const upcomingPeriod = minute + 1; // +1 LOGIC (IMPORTANT)
+
+  const period =
+    `${yyyy}${mm}${dd}` +
+    `1000` +
+    String(upcomingPeriod).padStart(4, "0");
+
+  return {
+    now,
+    second: now.getSeconds(),
+    period
+  };
+}
+
+// ---------- REAL RNG (0–9) ----------
+function pushRNG() {
+  const n = Math.floor(Math.random() * 10);
+  rngBucket.push(n);
+}
+
+// ---------- MOST FREQUENT ----------
+function getHighFrequency() {
+  const freq = {};
+  rngBucket.forEach(n => freq[n] = (freq[n] || 0) + 1);
+
+  let max = -1;
+  let selected = null;
+
+  for (let k in freq) {
+    if (freq[k] > max) {
+      max = freq[k];
+      selected = Number(k);
+    }
+  }
+  return selected;
+}
+
+// ---------- BIG / SMALL ----------
+function bigSmall(n) {
+  return n >= 5 ? "Big" : "Small";
+}
+
+// ---------- COLOR ----------
+function colorOf(n) {
+  if (n === 0) return "Violet";
+  if (n % 2 === 0) return "Red";
+  return "Green";
+}
+
+// ---------- MAIN LOOP ----------
 setInterval(() => {
-  const now = IST();
-  const sec = now.getSeconds();
-  const liveIdx = minuteIndex();
-  const prevIdx = liveIdx - 1;
+  const { second, period } = getPeriodInfo();
 
-  // simulate server activity (world hits)
-  hitRNG();
+  // हर second RNG collect (real behavior)
+  pushRNG();
 
-  // FINALIZE PREVIOUS MINUTE (ONLY ONCE)
-  if (!finalized.has(prevIdx) && prevIdx > 0 && sec === 0) {
-    finalized.add(prevIdx);
+  // 30s PREVIEW
+  if (second === 30) {
+    currentPreview = getHighFrequency();
+  }
 
-    // pick highest frequency number
-    let finalNum = 0;
-    let max = -1;
-    for (const n in frequencyPool) {
-      if (frequencyPool[n] > max) {
-        max = frequencyPool[n];
-        finalNum = Number(n);
-      }
+  // 59s FINAL LOCK
+  if (second === 59) {
+    currentFinal = getHighFrequency();
+
+    if (period !== lastLockedPeriod) {
+      history.unshift({
+        period,
+        number: currentFinal,
+        size: bigSmall(currentFinal),
+        colour: colorOf(currentFinal)
+      });
+
+      // history limit (last 50)
+      history = history.slice(0, 50);
+      lastLockedPeriod = period;
     }
 
-    history.unshift({
-      period: periodFromIndex(prevIdx),
-      number: finalNum,
-      size: sizeOf(finalNum),
-      color: colorOf(finalNum),
-      time: now.toLocaleString(),
-    });
-
-    history = history.slice(0, 10);
-
-    // reset pool for next minute
-    frequencyPool = {};
+    // reset bucket
+    rngBucket = [];
+    currentPreview = null;
   }
+
 }, 1000);
 
-/* ===== API ===== */
-app.get("/data", (req, res) => {
-  const now = IST();
-  const sec = now.getSeconds();
-  const idx = minuteIndex();
+// ---------- API ----------
+app.get("/api/data", (req, res) => {
+  const { second, period } = getPeriodInfo();
+
+  let display = "--";
+  if (second >= 30 && second < 59) display = currentPreview;
+  if (second >= 59) display = currentFinal;
 
   res.json({
-    time: now.toLocaleString(),
-    period: periodFromIndex(idx),
-    remaining: 59 - sec,
-    preview: sec >= 30 ? hitRNG() : null,
-    history,
+    period,
+    second,
+    display,
+    history
   });
 });
 
-app.listen(PORT, () =>
-  console.log("✅ FINAL SERVER RUNNING (FREQUENCY BASED)")
-);
+app.listen(3000, () => {
+  console.log("✅ FINAL SERVER RNG RUNNING");
+});
