@@ -1,88 +1,106 @@
 const express = require("express");
 const path = require("path");
 const app = express();
+
 const PORT = process.env.PORT || 3000;
 
-/* ---------- STATIC FILES ---------- */
+app.use(express.json());
 app.use(express.static("public"));
 
-/* ---------- ROOT FIX ---------- */
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "game.html"));
-});
-
-/* ---------- GAME LOGIC ---------- */
-
-let currentPeriod = null;
-let previewResult = null;
-let finalResult = null;
-let history = [];
-
+/* ================= TIME (IST) ================= */
 function getIST() {
   return new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
   );
 }
 
-function generatePeriod() {
-  const now = getIST();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const minute = now.getHours() * 60 + now.getMinutes() + 1; // +1 rule
-  return `${yyyy}${mm}${dd}1000${minute}`;
+/* ================= PERIOD LOGIC ================= */
+/*
+Rule:
+- Current minute = upcoming period
+- Example: 12:01 → period = 12:02
+*/
+function buildPeriod(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+
+  const totalMinutes = date.getHours() * 60 + date.getMinutes() + 1;
+
+  return `${y}${m}${d}1000${totalMinutes}`;
 }
 
-function rng() {
+/* ================= RNG (PURE 0–9 | 50–50) ================= */
+function serverRNG() {
   return Math.floor(Math.random() * 10);
 }
 
+/* ================= GAME STATE ================= */
+let GAME = {
+  period: null,
+  preview: null,
+  final: null,
+  history: [],
+};
+
+/* ================= ENGINE ================= */
 setInterval(() => {
   const now = getIST();
   const sec = now.getSeconds();
-  const period = generatePeriod();
+  const period = buildPeriod(now);
 
-  if (currentPeriod !== period) {
-    currentPeriod = period;
-    previewResult = null;
-    finalResult = null;
+  // NEW PERIOD DETECT
+  if (GAME.period !== period) {
+    GAME.period = period;
+    GAME.preview = null;
+    GAME.final = null;
   }
 
-  if (sec === 30 && previewResult === null) {
-    previewResult = rng();
+  // PREVIEW @ 30 sec
+  if (sec === 30 && GAME.preview === null) {
+    GAME.preview = serverRNG();
   }
 
-  if (sec === 59 && finalResult === null) {
-    finalResult = previewResult ?? rng();
+  // FINAL LOCK @ 59 sec
+  if (sec === 59 && GAME.final === null) {
+    GAME.final = GAME.preview ?? serverRNG();
 
-    history.unshift({
-      period: currentPeriod,
-      number: finalResult,
-      bigSmall: finalResult >= 5 ? "Big" : "Small",
+    GAME.history.unshift({
+      period: GAME.period,
+      number: GAME.final,
+      bigSmall: GAME.final >= 5 ? "Big" : "Small",
       colour:
-        finalResult === 0
+        GAME.final === 0
           ? "Violet"
-          : finalResult % 2 === 0
+          : GAME.final % 2 === 0
           ? "Red"
           : "Green",
     });
 
-    if (history.length > 10) history.pop();
+    if (GAME.history.length > 10) GAME.history.pop();
   }
 }, 1000);
 
+/* ================= API ================= */
 app.get("/api/status", (req, res) => {
   const now = getIST();
+  const sec = now.getSeconds();
+
   res.json({
     time: now,
-    remaining: 60 - now.getSeconds(),
-    period: currentPeriod,
-    preview: previewResult,
-    final: finalResult,
-    history,
+    remaining: 60 - sec,
+    period: GAME.period,
+    result: sec >= 30 ? GAME.preview : "--",
+    history: GAME.history,
   });
 });
 
+/* ================= ROUTE ================= */
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "game.html"));
+});
+
+/* ================= START ================= */
 app.listen(PORT, () => {
   console.log("SERVER RUNNING ON", PORT);
-});
+RT)
