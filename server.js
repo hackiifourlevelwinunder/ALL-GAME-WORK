@@ -4,68 +4,65 @@ const path = require("path");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-/* =========================
+/* =====================
    STATIC FILES
-========================= */
+===================== */
 app.use(express.static("public"));
 
-/* =========================
-   HOME ROUTE (FIX Cannot GET)
-========================= */
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "game.html"));
 });
 
-/* =========================
-   TIME + PERIOD LOGIC
-   - 1 minute = 1 period
-   - current time 01 => upcoming period 02
-   - 30 sec preview
-   - 59 sec final lock
-========================= */
-function getPeriodInfo() {
+/* =====================
+   PERIOD + TIME LOGIC
+===================== */
+function getGameState() {
   const now = new Date();
+  const sec = now.getSeconds();
 
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const dd = String(now.getDate()).padStart(2, "0");
 
-  const totalMinutes = Math.floor(now.getTime() / 60000);
-  const currentSecond = now.getSeconds();
+  const minuteIndex = Math.floor(now.getTime() / 60000);
+  const period = `${yyyy}${mm}${dd}10001${minuteIndex + 1}`;
 
-  const period = `${yyyy}${mm}${dd}10001${totalMinutes + 1}`;
+  let phase = "RUNNING";
+  if (sec >= 30 && sec < 59) phase = "PREVIEW";
+  if (sec >= 59) phase = "LOCK";
 
-  let phase = "running";
-  if (currentSecond >= 30 && currentSecond < 59) phase = "preview";
-  if (currentSecond >= 59) phase = "locked";
-
-  return { period, phase, now };
+  return { now, sec, period, phase };
 }
 
-/* =========================
-   SERVER RNG (0–9)
-   - No client generation
-   - True random
-========================= */
-function serverRNG() {
+/* =====================
+   SERVER RNG (ONLY HERE)
+===================== */
+function generateNumber() {
   return Math.floor(Math.random() * 10);
 }
 
-/* =========================
-   HISTORY STORE (IN-MEMORY)
-========================= */
+/* =====================
+   HISTORY MEMORY
+===================== */
 let history = [];
-let lastLockedPeriod = null;
+let lastPeriodLocked = null;
 
-/* =========================
-   API DATA
-========================= */
-app.get("/api/data", (req, res) => {
-  const { period, phase, now } = getPeriodInfo();
+/* =====================
+   API
+===================== */
+app.get("/api/state", (req, res) => {
+  const { now, sec, period, phase } = getGameState();
 
-  // Generate number only once per period (on lock)
-  if (phase === "locked" && lastLockedPeriod !== period) {
-    const number = serverRNG();
+  let previewNumber = null;
+
+  // Preview number (30 sec)
+  if (phase === "PREVIEW") {
+    previewNumber = generateNumber();
+  }
+
+  // Final lock at 59 sec (ONLY ONCE)
+  if (phase === "LOCK" && lastPeriodLocked !== period) {
+    const number = generateNumber();
 
     const bigSmall = number >= 5 ? "Big" : "Small";
     let colour = "Green";
@@ -79,28 +76,23 @@ app.get("/api/data", (req, res) => {
       colour,
     });
 
-    history = history.slice(0, 50); // last 50 only
-    lastLockedPeriod = period;
+    history = history.slice(0, 20);
+    lastPeriodLocked = period;
   }
 
   res.json({
+    time: now.toLocaleTimeString(),
+    seconds: sec,
     period,
     phase,
-    serverTime: now.toISOString(),
+    previewNumber,
     history,
   });
 });
 
-/* =========================
-   404 SAFETY
-========================= */
-app.use((req, res) => {
-  res.status(404).send("Not Found");
-});
-
-/* =========================
-   START SERVER
-========================= */
+/* =====================
+   SERVER START
+===================== */
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log("SERVER RUNNING ON", PORT);
 });
