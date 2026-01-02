@@ -19,21 +19,27 @@ function getDayBase(now) {
   return base;
 }
 
-/* ========= LIVE PERIOD (TIME + 1 MIN) ========= */
+/* ========= MINUTE INDEX (SOURCE OF TRUTH) ========= */
+function getMinuteIndex() {
+  const now = IST();
+  const base = getDayBase(now);
+  return Math.floor((now - base) / 60000) + 1; // UPCOMING minute
+}
+
+/* ========= PERIOD FROM INDEX ========= */
 function getLivePeriod() {
   const now = IST();
   const base = getDayBase(now);
-
-  // UPCOMING minute (IMPORTANT)
-  const diffMin = Math.floor((now - base) / 60000) + 1;
   const ymd = base.toISOString().slice(0, 10).replace(/-/g, "");
-
-  return `${ymd}10001${String(diffMin).padStart(4, "0")}`;
+  const idx = getMinuteIndex();
+  return `${ymd}10001${String(idx).padStart(4, "0")}`;
 }
 
-/* ========= PURE RNG ========= */
-function rng() {
-  return Math.floor(Math.random() * 10); // 0–9
+/* ========= STABLE RNG (PER MINUTE) ========= */
+function rngForMinute(minuteIndex) {
+  // deterministic per minute, still looks random
+  let x = (minuteIndex * 9301 + 49297) % 233280;
+  return Math.floor((x / 233280) * 10); // 0–9
 }
 
 function bigSmall(n) {
@@ -47,55 +53,55 @@ function colorOf(n) {
 }
 
 /* ========= GAME STATE ========= */
-let preview = null;
 let history = [];
-let lastLockedPeriod = null;
+let lastFinalizedIndex = null;
 
-/* ========= ENGINE (NO SECOND DEPENDENCY) ========= */
+/* ========= ENGINE (MINUTE-BASED, NO SKIP) ========= */
 setInterval(() => {
   const now = IST();
   const sec = now.getSeconds();
 
-  const livePeriod = getLivePeriod();
-  const previousPeriod = String(Number(livePeriod) - 1);
+  const liveIndex = getMinuteIndex();      // upcoming
+  const prevIndex = liveIndex - 1;         // previous minute
 
-  /* 30 sec → preview generate */
-  if (sec >= 30 && preview === null) {
-    preview = rng();
-  }
+  // Finalize previous minute ONCE when minute index advances
+  if (lastFinalizedIndex !== prevIndex && prevIndex > 0) {
+    const finalNumber = rngForMinute(prevIndex);
 
-  /* PERIOD CHANGE DETECT → FINAL LOCK */
-  if (preview !== null && lastLockedPeriod !== previousPeriod) {
     history.unshift({
-      period: previousPeriod,
-      number: preview,
-      size: bigSmall(preview),
-      color: colorOf(preview),
+      period: String(Number(getLivePeriod()) - 1),
+      number: finalNumber,
+      size: bigSmall(finalNumber),
+      color: colorOf(finalNumber),
       time: now.toLocaleString(),
     });
 
     history = history.slice(0, 10);
-    lastLockedPeriod = previousPeriod;
-    preview = null;
+    lastFinalizedIndex = prevIndex;
   }
-}, 1000);
+}, 500); // faster tick to catch minute change reliably
 
 /* ========= API ========= */
 app.get("/data", (req, res) => {
   const now = IST();
   const sec = now.getSeconds();
+  const liveIndex = getMinuteIndex();
   const livePeriod = getLivePeriod();
+
+  // Preview after 30 sec of the CURRENT minute (for upcoming period)
+  const preview =
+    sec >= 30 ? rngForMinute(liveIndex) : null;
 
   res.json({
     time: now.toLocaleString(),
-    period: livePeriod,       // frontend safe
-    livePeriod: livePeriod,   // backup key
+    period: livePeriod,        // frontend safe
+    livePeriod: livePeriod,    // backup
     remaining: 59 - sec,
-    result: sec >= 30 ? preview : null,
+    result: preview,           // preview number
     history,
   });
 });
 
 app.listen(PORT, () => {
-  console.log("SERVER RUNNING — FINAL (NO JUMP)");
+  console.log("SERVER RUNNING — FINAL STABLE VERSION");
 });
