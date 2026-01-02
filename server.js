@@ -1,51 +1,59 @@
 const express = require("express");
+const path = require("path");
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+/* ---------- STATIC FILES ---------- */
+app.use(express.static("public"));
+
+/* ---------- ROOT FIX ---------- */
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "game.html"));
+});
+
+/* ---------- GAME LOGIC ---------- */
 
 let currentPeriod = null;
 let previewResult = null;
 let finalResult = null;
 let history = [];
 
-function getISTTime() {
-  const now = new Date();
-  return new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+function getIST() {
+  return new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+  );
 }
 
 function generatePeriod() {
-  const now = getISTTime();
+  const now = getIST();
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const dd = String(now.getDate()).padStart(2, "0");
-  const minutes = now.getHours() * 60 + now.getMinutes() + 1; // +1 LOGIC
-
-  return `${yyyy}${mm}${dd}1000${minutes}`;
+  const minute = now.getHours() * 60 + now.getMinutes() + 1; // +1 rule
+  return `${yyyy}${mm}${dd}1000${minute}`;
 }
 
-function rngNumber() {
-  return Math.floor(Math.random() * 10); // 0–9 (50–50 natural)
+function rng() {
+  return Math.floor(Math.random() * 10);
 }
 
 setInterval(() => {
-  const now = getISTTime();
+  const now = getIST();
   const sec = now.getSeconds();
   const period = generatePeriod();
 
-  // New period start
   if (currentPeriod !== period) {
     currentPeriod = period;
     previewResult = null;
     finalResult = null;
   }
 
-  // 30 sec preview
   if (sec === 30 && previewResult === null) {
-    previewResult = rngNumber();
+    previewResult = rng();
   }
 
-  // 59 sec final lock
   if (sec === 59 && finalResult === null) {
-    finalResult = previewResult !== null ? previewResult : rngNumber();
+    finalResult = previewResult ?? rng();
 
     history.unshift({
       period: currentPeriod,
@@ -64,7 +72,7 @@ setInterval(() => {
 }, 1000);
 
 app.get("/api/status", (req, res) => {
-  const now = getISTTime();
+  const now = getIST();
   res.json({
     time: now,
     remaining: 60 - now.getSeconds(),
@@ -76,5 +84,5 @@ app.get("/api/status", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log("SERVER RUNNING ON", PORT);
 });
