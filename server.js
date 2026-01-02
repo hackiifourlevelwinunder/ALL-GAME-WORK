@@ -4,14 +4,14 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static("public"));
 
-/* ================= TIME (IST) ================= */
+/* ============ IST TIME ============ */
 function IST() {
   return new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
   );
 }
 
-/* ================= DAY RESET (5:30 AM) ================= */
+/* ============ DAY RESET 5:30 AM ============ */
 function getDayBase(now) {
   const base = new Date(now);
   base.setHours(5, 30, 0, 0);
@@ -19,23 +19,23 @@ function getDayBase(now) {
   return base;
 }
 
-/* ================= PERIOD CALCULATION =================
-   Period kabhi future ka nahi hoga
-   Time 11:43 → period 74
+/* ============ PERIOD LOGIC (FIXED) ============
+   Current time chal raha ho → NEXT minute ka period
 */
-function getCurrentPeriod() {
+function getLivePeriod() {
   const now = IST();
   const base = getDayBase(now);
 
-  const diffMin = Math.floor((now - base) / 60000); // no +1
-  const ymd = base.toISOString().slice(0, 10).replace(/-/g, "");
+  // +1 IMPORTANT (upcoming minute)
+  const diffMin = Math.floor((now - base) / 60000) + 1;
 
+  const ymd = base.toISOString().slice(0, 10).replace(/-/g, "");
   return `${ymd}10001${String(diffMin).padStart(4, "0")}`;
 }
 
-/* ================= PURE RNG (50–50) ================= */
+/* ============ PURE RNG (50-50) ============ */
 function rng() {
-  return Math.floor(Math.random() * 10); // 0–9 pure random
+  return Math.floor(Math.random() * 10); // 0–9
 }
 
 function bigSmall(n) {
@@ -48,56 +48,54 @@ function colorOf(n) {
   return "Red";
 }
 
-/* ================= GAME STATE ================= */
-let previewNumber = null;
+/* ============ GAME STATE ============ */
+let preview = null;
 let history = [];
-let lastLockedPeriod = null;
+let lockedPeriod = null;
 
-/* ================= MAIN TIMER =================
-   00–29 sec → blank
-   30 sec    → preview
-   59 sec    → final + history
-*/
+/* ============ TIMER ENGINE ============ */
 setInterval(() => {
   const now = IST();
   const sec = now.getSeconds();
-  const period = getCurrentPeriod();
 
-  // 30 second preview
-  if (sec === 30 && previewNumber === null) {
-    previewNumber = rng();
+  const livePeriod = getLivePeriod();
+  const previousPeriod = String(Number(livePeriod) - 1);
+
+  // 30 sec → preview (previous period ka)
+  if (sec === 30 && preview === null) {
+    preview = rng();
   }
 
-  // 59 second final lock
-  if (sec === 59 && previewNumber !== null && lastLockedPeriod !== period) {
+  // 59 sec → final lock + history
+  if (sec === 59 && preview !== null && lockedPeriod !== previousPeriod) {
     history.unshift({
-      period,
-      number: previewNumber,
-      size: bigSmall(previewNumber),
-      color: colorOf(previewNumber),
+      period: previousPeriod,
+      number: preview,
+      size: bigSmall(preview),
+      color: colorOf(preview),
       time: now.toLocaleString(),
     });
 
     history = history.slice(0, 10);
-    lastLockedPeriod = period;
-    previewNumber = null;
+    lockedPeriod = previousPeriod;
+    preview = null;
   }
 }, 1000);
 
-/* ================= API ================= */
+/* ============ API ============ */
 app.get("/data", (req, res) => {
   const now = IST();
   const sec = now.getSeconds();
 
   res.json({
     time: now.toLocaleString(),
-    period: getCurrentPeriod(),
-    timeRemaining: 59 - sec,
-    result: sec >= 30 ? previewNumber : null,
+    livePeriod: getLivePeriod(),          // upcoming
+    remaining: 59 - sec,
+    result: sec >= 30 ? preview : null,   // preview
     history,
   });
 });
 
 app.listen(PORT, () => {
-  console.log("SERVER RUNNING (FINAL LOGIC)");
+  console.log("SERVER RUNNING (PERIOD FIXED)");
 });
