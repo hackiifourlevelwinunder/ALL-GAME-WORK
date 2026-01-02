@@ -1,98 +1,80 @@
 const express = require("express");
-const path = require("path");
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-/* =====================
-   STATIC FILES
-===================== */
-app.use(express.static("public"));
+let currentPeriod = null;
+let previewResult = null;
+let finalResult = null;
+let history = [];
 
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "game.html"));
-});
-
-/* =====================
-   PERIOD + TIME LOGIC
-===================== */
-function getGameState() {
+function getISTTime() {
   const now = new Date();
-  const sec = now.getSeconds();
+  return new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+}
 
+function generatePeriod() {
+  const now = getISTTime();
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const dd = String(now.getDate()).padStart(2, "0");
+  const minutes = now.getHours() * 60 + now.getMinutes() + 1; // +1 LOGIC
 
-  const minuteIndex = Math.floor(now.getTime() / 60000);
-  const period = `${yyyy}${mm}${dd}10001${minuteIndex + 1}`;
-
-  let phase = "RUNNING";
-  if (sec >= 30 && sec < 59) phase = "PREVIEW";
-  if (sec >= 59) phase = "LOCK";
-
-  return { now, sec, period, phase };
+  return `${yyyy}${mm}${dd}1000${minutes}`;
 }
 
-/* =====================
-   SERVER RNG (ONLY HERE)
-===================== */
-function generateNumber() {
-  return Math.floor(Math.random() * 10);
+function rngNumber() {
+  return Math.floor(Math.random() * 10); // 0–9 (50–50 natural)
 }
 
-/* =====================
-   HISTORY MEMORY
-===================== */
-let history = [];
-let lastPeriodLocked = null;
+setInterval(() => {
+  const now = getISTTime();
+  const sec = now.getSeconds();
+  const period = generatePeriod();
 
-/* =====================
-   API
-===================== */
-app.get("/api/state", (req, res) => {
-  const { now, sec, period, phase } = getGameState();
-
-  let previewNumber = null;
-
-  // Preview number (30 sec)
-  if (phase === "PREVIEW") {
-    previewNumber = generateNumber();
+  // New period start
+  if (currentPeriod !== period) {
+    currentPeriod = period;
+    previewResult = null;
+    finalResult = null;
   }
 
-  // Final lock at 59 sec (ONLY ONCE)
-  if (phase === "LOCK" && lastPeriodLocked !== period) {
-    const number = generateNumber();
+  // 30 sec preview
+  if (sec === 30 && previewResult === null) {
+    previewResult = rngNumber();
+  }
 
-    const bigSmall = number >= 5 ? "Big" : "Small";
-    let colour = "Green";
-    if (number === 0 || number === 5) colour = "Violet";
-    else if (number % 2 === 0) colour = "Red";
+  // 59 sec final lock
+  if (sec === 59 && finalResult === null) {
+    finalResult = previewResult !== null ? previewResult : rngNumber();
 
     history.unshift({
-      period,
-      number,
-      bigSmall,
-      colour,
+      period: currentPeriod,
+      number: finalResult,
+      bigSmall: finalResult >= 5 ? "Big" : "Small",
+      colour:
+        finalResult === 0
+          ? "Violet"
+          : finalResult % 2 === 0
+          ? "Red"
+          : "Green",
     });
 
-    history = history.slice(0, 20);
-    lastPeriodLocked = period;
+    if (history.length > 10) history.pop();
   }
+}, 1000);
 
+app.get("/api/status", (req, res) => {
+  const now = getISTTime();
   res.json({
-    time: now.toLocaleTimeString(),
-    seconds: sec,
-    period,
-    phase,
-    previewNumber,
+    time: now,
+    remaining: 60 - now.getSeconds(),
+    period: currentPeriod,
+    preview: previewResult,
+    final: finalResult,
     history,
   });
 });
 
-/* =====================
-   SERVER START
-===================== */
 app.listen(PORT, () => {
-  console.log("SERVER RUNNING ON", PORT);
+  console.log("Server running on port", PORT);
 });
