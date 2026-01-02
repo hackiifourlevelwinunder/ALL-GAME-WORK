@@ -1,0 +1,18 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Roboto+Mono:wght@500;700&display=swap');
+body{margin:0;font-family:Inter;background:#05070f;color:#eafff8}
+.container{max-width:760px;margin:auto;padding:16px}
+.card{background:linear-gradient(160deg,#0b1535,#070b1f);border:1px solid rgba(0,255,213,.15);
+border-radius:16px;padding:18px;margin-bottom:16px;box-shadow:0 0 25px rgba(0,255,213,.08)}
+.title{font-size:20px;font-weight:700}
+.subtitle{font-size:12px;letter-spacing:1px;color:#4cffd8}
+.result{font-family:Roboto Mono;font-size:76px;text-align:center;color:#00ffd5;text-shadow:0 0 30px rgba(0,255,213,.9)}
+.timer{font-size:18px;color:#00ffd5}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.small{font-size:12px;opacity:.8}
+.green{color:#3dff9a}.red{color:#ff5c5c}.violet{color:#c77dff}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:8px;text-align:center} th{color:#00ffd5}
+input,button{width:100%;padding:14px;border-radius:14px;border:1px solid rgba(0,255,213,.3);
+background:#050814;color:#eafff8}
+button{background:linear-gradient(90deg,#00ffd5,#00bfff);color:#001;font-weight:700}

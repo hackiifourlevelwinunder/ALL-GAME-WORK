@@ -1,0 +1,59 @@
+
+<!DOCTYPE html><html><head><meta name=viewport content="width=device-width,initial-scale=1">
+<link rel=stylesheet href=style.css><title>System Panel</title></head>
+<body><div class=container>
+<div class=card>
+<div class=title>3 LEVEL FIX NUMBER</div>
+<div class=subtitle>ALL GAME WORK • REAL-TIME ENGINE IN ACTION</div>
+<div class=small id=datetime></div>
+<div class=timer id=timer></div>
+</div>
+
+<div class=card><div class=result id=res>--</div></div>
+
+<div class="grid">
+  <div class=card>
+    <div class=subtitle>PERIOD INFO</div>
+    <div id=period></div>
+  </div>
+  <div class=card>
+    <div class=subtitle>SYSTEM STATUS</div>
+    <div class=small>SYNC: ACTIVE</div>
+    <div class=small>SERVER RNG: ONLINE</div>
+  </div>
+</div>
+
+<div class=card>
+<table>
+<thead><tr><th>Period</th><th>Number</th><th>Big/Small</th><th>Colour</th></tr></thead>
+<tbody id=hist></tbody>
+</table>
+</div>
+</div>
+
+<script>
+function tick(){
+ const s=new Date().getSeconds();
+ timer.innerText="Time Remaining: "+(59-s)+"s";
+}
+setInterval(tick,1000);
+
+async function load(){
+ const d=await fetch('/data').then(r=>r.json());
+ document.getElementById('datetime').innerText=d.time;
+ period.innerText=d.period;
+ res.innerText=d.result===null?'--':d.result;
+ hist.innerHTML="";
+ d.history.forEach(x=>{
+  const cls=x.color.toLowerCase();
+  hist.innerHTML+=`<tr>
+   <td>${x.period}</td>
+   <td class=${cls}>${x.number}</td>
+   <td>${x.size}</td>
+   <td class=${cls}>${x.color}</td>
+  </tr>`;
+ });
+}
+setInterval(load,1000);
+</script>
+</body></html>
