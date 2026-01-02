@@ -4,104 +4,109 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static("public"));
 
-/* ========= IST TIME ========= */
+/* ===== IST TIME ===== */
 function IST() {
   return new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
   );
 }
 
-/* ========= DAY RESET 5:30 AM ========= */
-function getDayBase(now) {
-  const base = new Date(now);
-  base.setHours(5, 30, 0, 0);
-  if (now < base) base.setDate(base.getDate() - 1);
-  return base;
+/* ===== RESET 5:30 AM ===== */
+function getBase(now) {
+  const b = new Date(now);
+  b.setHours(5, 30, 0, 0);
+  if (now < b) b.setDate(b.getDate() - 1);
+  return b;
 }
 
-/* ========= MINUTE INDEX (SOURCE OF TRUTH) ========= */
-function getMinuteIndex() {
+/* ===== MINUTE INDEX ===== */
+function minuteIndex() {
   const now = IST();
-  const base = getDayBase(now);
-  return Math.floor((now - base) / 60000) + 1; // UPCOMING minute
+  const base = getBase(now);
+  return Math.floor((now - base) / 60000) + 1; // UPCOMING
 }
 
-/* ========= PERIOD FROM INDEX ========= */
-function getLivePeriod() {
-  const now = IST();
-  const base = getDayBase(now);
+/* ===== PERIOD ===== */
+function periodFromIndex(idx) {
+  const base = getBase(IST());
   const ymd = base.toISOString().slice(0, 10).replace(/-/g, "");
-  const idx = getMinuteIndex();
   return `${ymd}10001${String(idx).padStart(4, "0")}`;
 }
 
-/* ========= STABLE RNG (PER MINUTE) ========= */
-function rngForMinute(minuteIndex) {
-  // deterministic per minute, still looks random
-  let x = (minuteIndex * 9301 + 49297) % 233280;
-  return Math.floor((x / 233280) * 10); // 0–9
-}
-
-function bigSmall(n) {
-  return n >= 5 ? "Big" : "Small";
-}
-
-function colorOf(n) {
+/* ===== COLOR / SIZE ===== */
+const sizeOf = n => (n >= 5 ? "Big" : "Small");
+const colorOf = n => {
   if (n === 0 || n === 5) return "Violet";
   if ([1, 3, 7, 9].includes(n)) return "Green";
   return "Red";
+};
+
+/* ===== SERVER STATE ===== */
+let history = [];
+let finalized = new Set();
+let frequencyPool = {}; // per minute
+
+/* ===== RNG HIT (REAL FEEL) ===== */
+function hitRNG() {
+  const n = Math.floor(Math.random() * 10);
+  frequencyPool[n] = (frequencyPool[n] || 0) + 1;
+  return n;
 }
 
-/* ========= GAME STATE ========= */
-let history = [];
-let lastFinalizedIndex = null;
-
-/* ========= ENGINE (MINUTE-BASED, NO SKIP) ========= */
+/* ===== ENGINE ===== */
 setInterval(() => {
   const now = IST();
   const sec = now.getSeconds();
+  const liveIdx = minuteIndex();
+  const prevIdx = liveIdx - 1;
 
-  const liveIndex = getMinuteIndex();      // upcoming
-  const prevIndex = liveIndex - 1;         // previous minute
+  // simulate server activity (world hits)
+  hitRNG();
 
-  // Finalize previous minute ONCE when minute index advances
-  if (lastFinalizedIndex !== prevIndex && prevIndex > 0) {
-    const finalNumber = rngForMinute(prevIndex);
+  // FINALIZE PREVIOUS MINUTE (ONLY ONCE)
+  if (!finalized.has(prevIdx) && prevIdx > 0 && sec === 0) {
+    finalized.add(prevIdx);
+
+    // pick highest frequency number
+    let finalNum = 0;
+    let max = -1;
+    for (const n in frequencyPool) {
+      if (frequencyPool[n] > max) {
+        max = frequencyPool[n];
+        finalNum = Number(n);
+      }
+    }
 
     history.unshift({
-      period: String(Number(getLivePeriod()) - 1),
-      number: finalNumber,
-      size: bigSmall(finalNumber),
-      color: colorOf(finalNumber),
+      period: periodFromIndex(prevIdx),
+      number: finalNum,
+      size: sizeOf(finalNum),
+      color: colorOf(finalNum),
       time: now.toLocaleString(),
     });
 
     history = history.slice(0, 10);
-    lastFinalizedIndex = prevIndex;
-  }
-}, 500); // faster tick to catch minute change reliably
 
-/* ========= API ========= */
+    // reset pool for next minute
+    frequencyPool = {};
+  }
+}, 1000);
+
+/* ===== API ===== */
 app.get("/data", (req, res) => {
   const now = IST();
   const sec = now.getSeconds();
-  const liveIndex = getMinuteIndex();
-  const livePeriod = getLivePeriod();
-
-  // Preview after 30 sec of the CURRENT minute (for upcoming period)
-  const preview =
-    sec >= 30 ? rngForMinute(liveIndex) : null;
+  const idx = minuteIndex();
 
   res.json({
     time: now.toLocaleString(),
-    period: livePeriod,        // frontend safe
-    livePeriod: livePeriod,    // backup
+    period: periodFromIndex(idx),
     remaining: 59 - sec,
-    result: preview,           // preview number
+    preview: sec >= 30 ? hitRNG() : null,
     history,
   });
 });
 
-app.listen(PORT, () => {
-  console.log("SERVER RUNNING — FINAL STABLE VERSION");
-});
+app.listen(PORT, () =>
+  console.log("✅ FINAL SERVER RUNNING (FREQUENCY BASED)")
+);
